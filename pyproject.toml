@@ -1,0 +1,40 @@
+[project]
+name = "lidar_25d"
+version = "0.1.0"
+description = "A 2.5D LiDAR perception and mapping project."
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "scipy",
+    "pandas",
+    "matplotlib",
+    "open3d",
+    "pyyaml",
+    "tqdm",
+    "torch"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+    "mypy",
+]
+web = [
+    "fastapi",
+    "uvicorn",
+]
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["ai*", "backend*"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+
+[tool.mypy]
+ignore_missing_imports = true

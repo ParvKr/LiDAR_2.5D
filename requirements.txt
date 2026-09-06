@@ -1,9 +1,0 @@
-numpy
-scipy
-pandas
-matplotlib
-open3d
-pyyaml
-tqdm
-pytest
-torch
