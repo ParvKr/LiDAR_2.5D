@@ -25,7 +25,9 @@ def masked_focal_loss(
     if logits.shape[-2:] != target.shape[-2:]:
         raise ValueError("Spatial dimensions must match")
     if not mask.any():
-        raise ValueError("Mask contains no trainable cells")
+        # If the batch is completely empty, return a zero loss that still tracks gradients
+        # to prevent the training script from crashing.
+        return (logits * 0).sum()
 
     # Extract valid cells
     masked_logits = logits.permute(0, 2, 3, 1)[mask]

@@ -7,7 +7,7 @@ import sys
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, ConcatDataset
 
 from data.datasets.bev_dataset import BEVDataset
 from losses.segmentation import masked_focal_loss
@@ -21,15 +21,29 @@ logger = logging.getLogger(__name__)
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train a UNet model on BEV dataset.")
     parser.add_argument(
-        "--sequence-dir",
+        "--dataset-root",
         type=Path,
-        default=Path(__file__).resolve().parents[2] / "SemanticKITTI/sequences/00",
-        help="Path to SemanticKITTI sequence directory.",
+        default=Path(__file__).resolve().parents[2] / "SemanticKITTI",
+        help="Path to SemanticKITTI root directory.",
     )
+    parser.add_argument("--train-seqs", nargs="+", default=["00","01","02","03","04","05","06","07","09"], help="Training sequences")
+    parser.add_argument("--val-seqs", nargs="+", default=["08","10"], help="Validation sequences")
+    parser.add_argument("--checkpoint-dir", type=Path, default=Path("checkpoints"), help="Directory to save best model.")
     parser.add_argument("--epochs", type=int, default=50, help="Number of training epochs.")
     parser.add_argument("--patience", type=int, default=10, help="Early stopping patience (epochs).")
     parser.add_argument("--learning-rate", type=float, default=1e-3, help="Learning rate.")
     return parser.parse_args()
+
+
+def get_concat_dataset(root: Path, seqs: list[str]) -> ConcatDataset:
+    datasets = []
+    for seq in seqs:
+        seq_dir = root / "sequences" / seq
+        if seq_dir.exists():
+            datasets.append(BEVDataset(seq_dir))
+        else:
+            logger.warning(f"Sequence {seq} not found at {seq_dir}, skipping.")
+    return ConcatDataset(datasets)
 
 
 def main():
@@ -46,18 +60,22 @@ def main():
 
     logger.info(f"Using device: {device}")
 
-    dataset = BEVDataset(
-        args.sequence_dir
-    )
+    train_dataset = get_concat_dataset(args.dataset_root, args.train_seqs)
+    val_dataset = get_concat_dataset(args.dataset_root, args.val_seqs)
 
     # 2. Optimize DataLoader: 
-    # - Increased batch size from 1 to 4 (RTX 4050 can handle this easily)
-    # - Set num_workers=4 for parallel disk IO
-    # - Set pin_memory=True for faster CPU-to-GPU transfers
-    loader = DataLoader(
-        dataset,
+    train_loader = DataLoader(
+        train_dataset,
         batch_size=4,
         shuffle=True,
+        num_workers=4,
+        pin_memory=(device.type == "cuda"),
+    )
+    
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=4,
+        shuffle=False,
         num_workers=4,
         pin_memory=(device.type == "cuda"),
     )
@@ -81,9 +99,11 @@ def main():
     epochs_without_improvement = 0
 
     for epoch in range(1, args.epochs + 1):
-        total_loss = 0.0
+        # --- TRAINING ---
+        model.train()
+        train_loss = 0.0
 
-        for batch in loader:
+        for batch in train_loader:
             features = batch["features"].to(device)
             target = batch["target"].to(device)
             mask = batch["mask"].to(device)
@@ -106,20 +126,47 @@ def main():
                 loss.backward()
                 optimizer.step()
 
-            total_loss += loss.item()
+            train_loss += loss.item()
 
-        if epoch == 1 or epoch % 10 == 0:
-            logger.info(
-                f"Epoch {epoch:3d} | "
-                f"Loss: {total_loss:.6f}"
-            )
+        # --- VALIDATION ---
+        model.eval()
+        val_loss = 0.0
+        with torch.no_grad():
+            for batch in val_loader:
+                features = batch["features"].to(device)
+                target = batch["target"].to(device)
+                mask = batch["mask"].to(device)
 
-        if total_loss < best_loss:
-            best_loss = total_loss
+                if device.type == "cuda":
+                    with torch.amp.autocast('cuda'):
+                        logits = model(features)
+                        loss = masked_focal_loss(logits, target, mask)
+                else:
+                    logits = model(features)
+                    loss = masked_focal_loss(logits, target, mask)
+                
+                val_loss += loss.item()
+
+        # Average the losses over the number of batches
+        train_loss /= max(1, len(train_loader))
+        val_loss /= max(1, len(val_loader))
+
+        logger.info(
+            f"Epoch {epoch:3d} | "
+            f"Train Loss: {train_loss:.6f} | "
+            f"Val Loss: {val_loss:.6f}"
+        )
+
+        # Early Stopping based on Validation Loss
+        if val_loss < best_loss:
+            best_loss = val_loss
             epochs_without_improvement = 0
-            # Save the best model!
-            torch.save(model.state_dict(), "best_unet.pth")
-            logger.info("New best model saved to best_unet.pth")
+            
+            # Save the best model safely to the checkpoint directory!
+            args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            best_model_path = args.checkpoint_dir / "best_unet.pth"
+            torch.save(model.state_dict(), best_model_path)
+            logger.info(f"New best model saved to {best_model_path}")
         else:
             epochs_without_improvement += 1
             if epochs_without_improvement >= args.patience:
