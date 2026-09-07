@@ -256,34 +256,19 @@ class BEVProjector:
             dtype=np.int32,
         )
 
-        label_counts: dict[
-            int,
-            dict[int, int],
-        ] = {}
-
-        for cell, label in zip(
-            cell_ids,
-            labels,
-        ):
-            cell = int(cell)
-            label = int(label)
-
-            if cell not in label_counts:
-                label_counts[cell] = {}
-
-            label_counts[cell][label] = (
-                label_counts[cell].get(
-                    label,
-                    0,
-                )
-                + 1
-            )
-
-        for cell, counts in label_counts.items():
-            cell_labels[cell] = max(
-                counts,
-                key=counts.get,
-            )
+        # --- FAST MAJORITY VOTING (Fully Vectorized) ---
+        if len(cell_ids) > 0:
+            max_label = labels.max()
+            
+            # Create a unique 1D index for every (cell, label) pair
+            flat_indices = cell_ids * (max_label + 1) + labels
+            
+            # Count occurrences purely in C using bincount
+            counts = np.bincount(flat_indices, minlength=num_cells * (max_label + 1))
+            
+            # Reshape back to [num_cells, max_label + 1] and find the max
+            counts_2d = counts.reshape(num_cells, max_label + 1)
+            cell_labels = np.argmax(counts_2d, axis=1).astype(np.int32)
 
         cell_labels = cell_labels.reshape(
             self.height,

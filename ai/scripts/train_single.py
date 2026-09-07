@@ -104,8 +104,10 @@ def main():
         train_loss = 0.0
 
         for batch in train_loader:
-            features = batch["features"].to(device)
-            target = batch["target"].to(device)
+            # We cast features up to float32 (AMP will handle casting down if safe)
+            # and target to long (int64) because F.cross_entropy requires it.
+            features = batch["features"].to(device, dtype=torch.float32)
+            target = batch["target"].to(device, dtype=torch.long)
             mask = batch["mask"].to(device)
 
             optimizer.zero_grad()
@@ -133,8 +135,8 @@ def main():
         val_loss = 0.0
         with torch.no_grad():
             for batch in val_loader:
-                features = batch["features"].to(device)
-                target = batch["target"].to(device)
+                features = batch["features"].to(device, dtype=torch.float32)
+                target = batch["target"].to(device, dtype=torch.long)
                 mask = batch["mask"].to(device)
 
                 if device.type == "cuda":

@@ -25,9 +25,17 @@ class BEVDataset(Dataset):
             else BEVProjector()
         )
         
-        # Setup Disk Cache to save hours of redundant compute
+        # Setup Disk Cache
         self.use_cache = use_cache
-        self.cache_dir = self.sequence_dir / ".bev_cache"
+        
+        # VERY IMPORTANT: We save the cache to a fast local temporary directory 
+        # instead of inside the sequence_dir. If sequence_dir is on a network drive 
+        # (like Google Drive in Colab), writing 4,000 files will take 6+ hours due to sync overhead!
+        import os
+        import tempfile
+        base_cache_dir = Path(os.environ.get("BEV_CACHE_DIR", tempfile.gettempdir())) / "bev_cache"
+        self.cache_dir = base_cache_dir / self.sequence_dir.name
+        
         if self.use_cache:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -48,7 +56,14 @@ class BEVDataset(Dataset):
             cache_file = config_cache_dir / f"frame_{index:06d}.pt"
             
             if cache_file.exists():
-                return torch.load(cache_file, weights_only=False)
+                data = torch.load(cache_file, weights_only=False)
+                # CRITICAL: We must cast these back up to float32 and int64 IMMEDIATELY upon loading.
+                # If we have a mix of old files (float32/int64) and new files (float16/int8) on disk,
+                # the PyTorch DataLoader will crash when trying to batch them together unless they
+                # are all standardized here first!
+                data["features"] = data["features"].to(torch.float32)
+                data["target"] = data["target"].to(torch.long)
+                return data
 
         # 2. If not cached, do the heavy computation
         points, labels = self.dataset[index]
@@ -60,11 +75,11 @@ class BEVDataset(Dataset):
 
         features = torch.from_numpy(
             result.features
-        ).float()
+        ).to(torch.float32)
 
         target = torch.from_numpy(
             result.labels
-        ).long()
+        ).to(torch.long)
 
         mask = torch.from_numpy(
             result.label_mask
@@ -78,6 +93,12 @@ class BEVDataset(Dataset):
         
         # 3. Save to cache for the next epoch!
         if self.use_cache:
-            torch.save(data, cache_file)
+            # Downcast to save 60% disk space ONLY for the saved file
+            cached_data = {
+                "features": features.to(torch.float16),
+                "target": target.to(torch.int8),
+                "mask": mask
+            }
+            torch.save(cached_data, cache_file)
 
         return data
