@@ -120,7 +120,6 @@ class AdaptiveGrid:
         x: float,
         y: float,
         z: float,
-        timestamp: float | None = None,
         semantic_class: int | None = None,
     ) -> MapCell:
         """Insert one LiDAR point into the adaptive grid."""
@@ -135,7 +134,6 @@ class AdaptiveGrid:
 
         cell.add_observation(
             height=z,
-            timestamp=timestamp,
             semantic_class=semantic_class,
         )
 
@@ -144,7 +142,6 @@ class AdaptiveGrid:
     def insert_points(
         self,
         points: np.ndarray,
-        timestamp: float | None = None,
         semantic_classes: np.ndarray | None = None,
     ) -> None:
         """Insert an Nx3 array of LiDAR points."""
@@ -166,7 +163,6 @@ class AdaptiveGrid:
                 x=x,
                 y=y,
                 z=z,
-                timestamp=timestamp,
                 semantic_class=(None if semantic_classes is None else semantic_classes[index]),
             )
 

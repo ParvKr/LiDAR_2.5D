@@ -6,11 +6,11 @@ import torch
 from ai.models.unet import UNet
 
 device = torch.device("mps")
-model = UNet(in_channels=5, num_classes=20).to(device)
+model = UNet(in_channels=6, num_classes=20).to(device)
 model.eval()
 
 # Dummy input
-x = torch.randn(1, 5, 256, 256).to(device)
+x = torch.randn(1, 6, 256, 256).to(device)
 print("Running forward pass on MPS...")
 try:
     with torch.no_grad():

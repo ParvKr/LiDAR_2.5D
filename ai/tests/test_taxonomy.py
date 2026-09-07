@@ -1,4 +1,4 @@
-from LiDAR_25D.perception.taxonomy import (
+from perception.taxonomy import (
     SemanticClass,
     extract_semantic_id,
     map_semantic_kitti_label,

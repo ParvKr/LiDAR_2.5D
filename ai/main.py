@@ -58,7 +58,7 @@ def main() -> None:
 
     # 1. Initialize Network
     logger.info("Initializing UNet model...")
-    model = UNet(in_channels=5, num_classes=20).to(device)
+    model = UNet(in_channels=6, num_classes=20).to(device)
     model.eval()
     
     if args.model_weights and args.model_weights.exists():

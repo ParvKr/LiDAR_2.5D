@@ -4,13 +4,14 @@ import { OrbitControls, Stats } from '@react-three/drei'
 import * as THREE from 'three'
 
 const COLOR_MAP: Record<number, string> = {
-  0: '#d95930', // Static Obstacles (Orange)
-  9: '#639921', // Drivable Terrain (Green)
+  255: '#444444', // UNSEEN / Out of BEV Bounds (Dark Grey)
+  0: '#a3a3a3',   // UNKNOWN (Light Grey)
+  9: '#639921',   // Drivable Terrain (Green)
   10: '#639921',
   11: '#639921',
   12: '#639921',
   17: '#639921',
-  1: '#d4547d', // Dynamic Objects (Pink)
+  1: '#d4547d',   // Dynamic Objects (Pink)
   2: '#d4547d',
   3: '#d4547d',
   4: '#d4547d',
@@ -18,6 +19,12 @@ const COLOR_MAP: Record<number, string> = {
   6: '#d4547d',
   7: '#d4547d',
   8: '#d4547d',
+  13: '#d95930',  // Static Obstacles (Orange)
+  14: '#d95930',
+  15: '#d95930',
+  16: '#d95930',
+  18: '#d95930',
+  19: '#d95930',
 }
 
 function GridCells({ gridData }: { gridData: any }) {
@@ -43,7 +50,7 @@ function GridCells({ gridData }: { gridData: any }) {
       dummy.updateMatrix()
       meshRef.current.setMatrixAt(i, dummy.matrix)
 
-      const hex = COLOR_MAP[label] || '#d95930'
+      const hex = COLOR_MAP[label] || '#444444'
       color.set(hex)
       meshRef.current.setColorAt(i, color)
     }

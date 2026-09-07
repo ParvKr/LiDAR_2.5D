@@ -3,7 +3,7 @@ from pathlib import Path
 import torch
 
 from data.datasets.bev_dataset import BEVDataset
-from losses.segmentation import masked_cross_entropy
+from losses.segmentation import masked_focal_loss
 from models.unet import UNet
 
 
@@ -22,13 +22,13 @@ def main():
     mask = sample["mask"].unsqueeze(0)
 
     model = UNet(
-        in_channels=5,
+        in_channels=6,
         num_classes=20,
     )
 
     logits = model(features)
 
-    loss = masked_cross_entropy(
+    loss = masked_focal_loss(
         logits,
         target,
         mask,

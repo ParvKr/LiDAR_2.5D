@@ -129,7 +129,7 @@ def main():
     )
 
     model = UNet(
-        in_channels=5,
+        in_channels=6,
         num_classes=20,
     ).to(device)
 
@@ -140,7 +140,7 @@ def main():
 
     # 3. Learning Rate Scheduler (Reduces LR when validation loss plateaus)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode='min', factor=0.5, patience=3, verbose=True
+        optimizer, mode="min", factor=0.5, patience=3
     )
 
     # 4. Initialize AMP Scaler for Mixed Precision Training
@@ -152,7 +152,7 @@ def main():
 
     model.train()
 
-    best_loss = float("inf")
+    best_miou = -1.0
     epochs_without_improvement = 0
 
     for epoch in range(1, args.epochs + 1):
@@ -195,6 +195,9 @@ def main():
         model.eval()
         val_loss = 0.0
         
+        intersection = torch.zeros(20, device=device)
+        union = torch.zeros(20, device=device)
+        
         val_pbar = tqdm(val_loader, desc=f"Epoch {epoch}/{args.epochs} [Val]")
         
         with torch.no_grad():
@@ -212,11 +215,28 @@ def main():
                     loss = masked_focal_loss(logits, target, mask, alpha=class_weights)
                 
                 val_loss += loss.item()
+                
+                # Compute IoU components (ignore class 0)
+                preds = logits.argmax(dim=1)
+                valid = mask & (target != 0)
+                
+                for cls_id in range(1, 20):
+                    cls_preds = (preds == cls_id) & valid
+                    cls_target = (target == cls_id) & valid
+                    
+                    intersection[cls_id] += (cls_preds & cls_target).sum()
+                    union[cls_id] += (cls_preds | cls_target).sum()
+                    
                 val_pbar.set_postfix({"loss": f"{loss.item():.4f}"})
 
         # Average the losses over the number of batches
         train_loss /= max(1, len(train_loader))
         val_loss /= max(1, len(val_loader))
+        
+        # Calculate Validation mIoU
+        ious = intersection[1:] / (union[1:] + 1e-6)
+        valid_classes = union[1:] > 0
+        val_miou = ious[valid_classes].mean().item() if valid_classes.any() else float('-inf')
 
         # Update the Learning Rate Scheduler
         scheduler.step(val_loss)
@@ -226,19 +246,20 @@ def main():
             f"Epoch {epoch:3d} | "
             f"LR: {current_lr:.2e} | "
             f"Train Loss: {train_loss:.6f} | "
-            f"Val Loss: {val_loss:.6f}"
+            f"Val Loss: {val_loss:.6f} | "
+            f"Val mIoU: {val_miou:.4f}"
         )
 
-        # Early Stopping based on Validation Loss
-        if val_loss < best_loss:
-            best_loss = val_loss
+        # Early Stopping based on Validation mIoU
+        if val_miou > best_miou:
+            best_miou = val_miou
             epochs_without_improvement = 0
             
             # Save the best model safely to the checkpoint directory!
             args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
             best_model_path = args.checkpoint_dir / "best_unet.pth"
             torch.save(model.state_dict(), best_model_path)
-            logger.info(f"New best model saved to {best_model_path}")
+            logger.info(f"New best model saved with mIoU {best_miou:.4f} to {best_model_path}")
         else:
             epochs_without_improvement += 1
             if epochs_without_improvement >= args.patience:

@@ -22,7 +22,7 @@ def main():
     print(x.shape)
 
     model = UNet(
-        in_channels=5,
+        in_channels=6,
         num_classes=20,
     )
 

@@ -110,17 +110,17 @@ class SemanticKITTIDataset:
         Load labels converted to SemanticKITTI learning IDs.
         """
 
-        from perception.taxonomy import map_semantic_kitti_label
+        from perception.taxonomy import LEARNING_MAP
 
         raw_labels = self.load_raw_labels(index)
-
-        return np.array(
-            [
-                int(map_semantic_kitti_label(label))
-                for label in raw_labels
-            ],
-            dtype=np.int32,
-        )
+        
+        if getattr(self, '_mapping_array', None) is None:
+            self._mapping_array = np.zeros(65536, dtype=np.int32)
+            for k, v in LEARNING_MAP.items():
+                self._mapping_array[k] = v
+                
+        semantic_ids = raw_labels & 0xFFFF
+        return self._mapping_array[semantic_ids]
 
     def __getitem__(self, index: int) -> tuple[np.ndarray, np.ndarray]:
         """

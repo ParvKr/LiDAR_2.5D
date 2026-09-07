@@ -23,8 +23,8 @@ def main():
     )
 
     height = result.features[0]
-    intensity = result.features[3]
-    density = result.features[4]
+    intensity = result.features[4]
+    density = result.features[5]
 
     semantic = result.labels
 

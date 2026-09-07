@@ -51,7 +51,7 @@ def load_resources():
         print(f"Warning: Dataset not found at {seq_dir}")
 
     # 2. Load Model
-    model = UNet(in_channels=5, num_classes=20).to(device)
+    model = UNet(in_channels=6, num_classes=20).to(device)
     model.eval()
     
     weights_path = PROJECT_ROOT / "best_unet.pth"
@@ -82,7 +82,8 @@ def get_frame(frame_id: int):
         
     # 3. Map Back to 3D
     flat_preds = preds.flatten()
-    point_preds = np.zeros(len(points), dtype=np.int32)
+    # Initialize with 255 (UNSEEN) so we don't accidentally treat points outside our BEV as class 0 (UNKNOWN)
+    point_preds = np.full(len(points), 255, dtype=np.int32)
     valid_points = bev_result.point_to_cell >= 0
     point_preds[valid_points] = flat_preds[bev_result.point_to_cell[valid_points]]
     

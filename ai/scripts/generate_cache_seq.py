@@ -44,8 +44,7 @@ def main():
         # ------------------------------------------------------------
         # DIRECTORIES
         # ------------------------------------------------------------
-        proj = dataset.projector
-        CONFIG_NAME = f"res_{proj.resolution}_x_{proj.x_min}_{proj.x_max}_y_{proj.y_min}_{proj.y_max}_z_{proj.z_min}_{proj.z_max}"
+        CONFIG_NAME = f"config_{dataset.projector.config_hash}"
 
         DRIVE_CACHE = (
             SEQUENCE_DIR

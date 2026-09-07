@@ -1,8 +1,8 @@
 import numpy as np
 
-from LiDAR_25D.data.datasets.semantic_kitti import SemanticKITTIDataset
-from LiDAR_25D.mapping.adaptive_grid import AdaptiveGrid
-from LiDAR_25D.perception.taxonomy import SemanticClass
+from data.datasets.semantic_kitti import SemanticKITTIDataset
+from mapping.adaptive_grid import AdaptiveGrid
+from perception.taxonomy import SemanticClass
 
 
 def test_dataset_to_adaptive_grid(tmp_path):

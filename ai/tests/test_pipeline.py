@@ -1,7 +1,7 @@
 import numpy as np
 
-from LiDAR_25D.geometry.point_cloud import PointCloud
-from LiDAR_25D.mapping.adaptive_grid import AdaptiveGrid
+from geometry.point_cloud import PointCloud
+from mapping.adaptive_grid import AdaptiveGrid
 
 
 def test_xyzi_to_adaptive_map():

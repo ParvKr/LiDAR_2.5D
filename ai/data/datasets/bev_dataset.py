@@ -51,7 +51,7 @@ class BEVDataset(Dataset):
         # This guarantees that if we change resolution/ranges, it ignores the old cache
         if self.use_cache:
             proj = self.projector
-            config_str = f"res_{proj.resolution}_x_{proj.x_min}_{proj.x_max}_y_{proj.y_min}_{proj.y_max}_z_{proj.z_min}_{proj.z_max}"
+            config_str = f"config_{proj.config_hash}"
             
             # Create a specific sub-folder for this exact configuration
             config_cache_dir = self.cache_dir / config_str

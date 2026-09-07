@@ -1,7 +1,7 @@
 import numpy as np
 
-from LiDAR_25D.geometry.coordinates import transform_points
-from LiDAR_25D.geometry.point_cloud import PointCloud
+from geometry.coordinates import transform_points
+from geometry.point_cloud import PointCloud
 
 
 def test_point_cloud():

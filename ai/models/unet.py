@@ -71,7 +71,8 @@ class ASPPModule(nn.Module):
         self.image_pool = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
             nn.Conv2d(in_channels, out_channels, 1, bias=False),
-            nn.BatchNorm2d(out_channels),
+            # Use GroupNorm instead of BatchNorm2d because batch size 1 will crash BatchNorm on 1x1 spatial dims
+            nn.GroupNorm(32, out_channels),
             nn.ReLU(inplace=True)
         )
         self.project = nn.Sequential(
@@ -97,7 +98,7 @@ class ASPPModule(nn.Module):
 class UNet(nn.Module):
     def __init__(
         self,
-        in_channels: int = 5,
+        in_channels: int = 6,
         num_classes: int = 20,
         dropout_rate: float = 0.2,
     ):

@@ -1,7 +1,7 @@
 import numpy as np
 
-from LiDAR_25D.mapping.adaptive_grid import AdaptiveGrid
-from LiDAR_25D.mapping.uniform_grid import UniformGrid
+from mapping.adaptive_grid import AdaptiveGrid
+from mapping.uniform_grid import UniformGrid
 
 
 def test_uniform_grid_accumulates_points():

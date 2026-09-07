@@ -61,6 +61,24 @@ class BEVProjector:
             )
         )
 
+    @property
+    def config_hash(self) -> str:
+        import hashlib
+        import json
+        config = {
+            "resolution": self.resolution,
+            "x_min": self.x_min,
+            "x_max": self.x_max,
+            "y_min": self.y_min,
+            "y_max": self.y_max,
+            "z_min": self.z_min,
+            "z_max": self.z_max,
+            "min_distance": self.min_distance,
+            "feature_version": 2, # Bumped because z_range filtering was fixed!
+            "taxonomy_version": 1,
+        }
+        return hashlib.sha256(json.dumps(config, sort_keys=True).encode()).hexdigest()[:16]
+
     def project(
         self,
         points: np.ndarray,
@@ -96,6 +114,8 @@ class BEVProjector:
             & (x < self.x_max)
             & (y >= self.y_min)
             & (y < self.y_max)
+            & (z >= self.z_min)
+            & (z < self.z_max)
             & (distance >= self.min_distance)
         )
 
@@ -144,6 +164,11 @@ class BEVProjector:
             dtype=np.float32,
         )
 
+        sum_height_squared = np.zeros(
+            num_cells,
+            dtype=np.float32,
+        )
+
         sum_intensity = np.zeros(
             num_cells,
             dtype=np.float32,
@@ -173,6 +198,12 @@ class BEVProjector:
         )
 
         np.add.at(
+            sum_height_squared,
+            cell_ids,
+            z**2,
+        )
+
+        np.add.at(
             sum_intensity,
             cell_ids,
             intensity,
@@ -190,6 +221,11 @@ class BEVProjector:
             num_cells,
             dtype=np.float32,
         )
+        
+        height_variance = np.zeros(
+            num_cells,
+            dtype=np.float32,
+        )
 
         mean_intensity = np.zeros(
             num_cells,
@@ -199,6 +235,11 @@ class BEVProjector:
         mean_height[occupied] = (
             sum_height[occupied]
             / count[occupied]
+        )
+        
+        height_variance[occupied] = np.maximum(
+            0.0,
+            (sum_height_squared[occupied] / count[occupied]) - mean_height[occupied]**2
         )
 
         mean_intensity[occupied] = (
@@ -229,16 +270,21 @@ class BEVProjector:
                 (mean_height - self.z_min)
                 / height_range
         )
+        
+        # Normalize variance (variance has units of m^2)
+        height_variance = height_variance / (height_range ** 2)
 
         max_height[~occupied] = 0.0
         min_height[~occupied] = 0.0
         mean_height[~occupied] = 0.0
+        height_variance[~occupied] = 0.0
 
         features = np.stack(
             [
                 max_height,
                 min_height,
                 mean_height,
+                height_variance,
                 mean_intensity,
                 density,
             ],
@@ -246,7 +292,7 @@ class BEVProjector:
         )
 
         features = features.reshape(
-            5,
+            6,
             self.height,
             self.width,
         )

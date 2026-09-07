@@ -62,7 +62,6 @@ class UniformGrid:
         x: float,
         y: float,
         z: float,
-        timestamp: float | None = None,
     ) -> MapCell:
         """Insert one LiDAR point into the grid."""
 
@@ -72,7 +71,6 @@ class UniformGrid:
 
         cell.add_observation(
             height=z,
-            timestamp=timestamp,
         )
 
         return cell
@@ -80,7 +78,6 @@ class UniformGrid:
     def insert_points(
         self,
         points: np.ndarray,
-        timestamp: float | None = None,
     ) -> None:
         """
         Insert an Nx3 array of LiDAR points.
@@ -98,7 +95,6 @@ class UniformGrid:
                 x=x,
                 y=y,
                 z=z,
-                timestamp=timestamp,
             )
 
     @property

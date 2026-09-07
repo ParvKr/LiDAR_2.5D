@@ -16,12 +16,10 @@ class MapCell:
     semantic_class: Optional[int] = None
     semantic_confidence: float = 0.0
 
-    dynamic_probability: float = 0.0
-    last_timestamp: Optional[float] = None
-
     _height_sum: float = field(default=0.0, repr=False)
     _height_squared_sum: float = field(default=0.0, repr=False)
     _semantic_counts: Dict[int, int] = field(default_factory=dict, repr=False)
+    _labeled_point_count: int = field(default=0, repr=False)
 
     @property
     def height(self) -> Optional[float]:
@@ -50,7 +48,6 @@ class MapCell:
     def add_observation(
         self,
         height: float,
-        timestamp: Optional[float] = None,
         semantic_class: Optional[int] = None,
     ) -> None:
         """
@@ -63,16 +60,16 @@ class MapCell:
         self.point_count += 1
         self.occupied = True
 
-        if timestamp is not None:
-            self.last_timestamp = timestamp
-
         if semantic_class is not None:
             semantic_class = int(semantic_class)
+            self._labeled_point_count += 1
+            
             count = self._semantic_counts.get(semantic_class, 0) + 1
             self._semantic_counts[semantic_class] = count
+            
             self.semantic_class = max(
                 self._semantic_counts, key=self._semantic_counts.get
             )
             self.semantic_confidence = (
-                self._semantic_counts[self.semantic_class] / self.point_count
+                self._semantic_counts[self.semantic_class] / self._labeled_point_count
             )
