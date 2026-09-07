@@ -6,7 +6,7 @@ def masked_focal_loss(
     logits: torch.Tensor,
     target: torch.Tensor,
     mask: torch.Tensor,
-    alpha: float = 0.25,
+    alpha: torch.Tensor | float = 0.25,
     gamma: float = 2.0,
 ) -> torch.Tensor:
     """
@@ -36,8 +36,15 @@ def masked_focal_loss(
     # Compute standard Cross Entropy
     ce_loss = F.cross_entropy(masked_logits, masked_target, reduction="none")
     
+    # Apply per-class Alpha weighting if alpha is a tensor
+    if isinstance(alpha, torch.Tensor):
+        alpha = alpha.to(target.device)
+        at = alpha[masked_target]
+    else:
+        at = alpha
+        
     # Compute Focal Loss ( modulating factor: (1 - p_t)^gamma )
     pt = torch.exp(-ce_loss)
-    focal_loss = alpha * (1 - pt) ** gamma * ce_loss
+    focal_loss = at * (1 - pt) ** gamma * ce_loss
 
     return focal_loss.mean()

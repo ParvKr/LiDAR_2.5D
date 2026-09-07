@@ -25,16 +25,20 @@ class BEVDataset(Dataset):
             else BEVProjector()
         )
         
-        # Setup Disk Cache
         self.use_cache = use_cache
-        
-        # VERY IMPORTANT: We save the cache to a fast local temporary directory 
-        # instead of inside the sequence_dir. If sequence_dir is on a network drive 
-        # (like Google Drive in Colab), writing 4,000 files will take 6+ hours due to sync overhead!
+
+        # VERY IMPORTANT: We save the cache to a fast local temporary directory.
+        # We hash the FULL absolute path of the sequence to guarantee no collisions
+        # if the user mounts different datasets that share sequence names (like "00").
         import os
         import tempfile
+        import hashlib
+        
+        abs_path = str(self.sequence_dir.absolute()).encode('utf-8')
+        path_hash = hashlib.md5(abs_path).hexdigest()[:8]
+        
         base_cache_dir = Path(os.environ.get("BEV_CACHE_DIR", tempfile.gettempdir())) / "bev_cache"
-        self.cache_dir = base_cache_dir / self.sequence_dir.name
+        self.cache_dir = base_cache_dir / f"{self.sequence_dir.name}_{path_hash}"
         
         if self.use_cache:
             self.cache_dir.mkdir(parents=True, exist_ok=True)

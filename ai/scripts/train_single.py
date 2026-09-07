@@ -2,6 +2,7 @@ import argparse
 import logging
 from pathlib import Path
 import sys
+from tqdm import tqdm
 
 # Add the 'ai' directory to Python path so internal imports work
 sys.path.append(str(Path(__file__).resolve().parents[1]))
@@ -44,6 +45,53 @@ def get_concat_dataset(root: Path, seqs: list[str]) -> ConcatDataset:
         else:
             logger.warning(f"Sequence {seq} not found at {seq_dir}, skipping.")
     return ConcatDataset(datasets)
+
+def compute_class_weights(dataset_root: Path, seqs: list[str], num_classes: int = 20) -> torch.Tensor:
+    from perception.taxonomy import LEARNING_MAP
+    import numpy as np
+
+    logger.info("Computing inverse-frequency class weights from raw labels...")
+    
+    # Fast vectorized mapping using a lookup array for 16-bit semantic IDs
+    mapping_array = np.zeros(65536, dtype=np.int32)
+    for k, v in LEARNING_MAP.items():
+        mapping_array[k] = v
+
+    class_counts = np.zeros(num_classes, dtype=np.int64)
+    
+    for seq in seqs:
+        labels_dir = dataset_root / "sequences" / seq / "labels"
+        if not labels_dir.exists():
+            continue
+            
+        for label_file in labels_dir.glob("*.label"):
+            raw_labels = np.fromfile(label_file, dtype=np.uint32)
+            semantic_ids = raw_labels & 0xFFFF
+            mapped = mapping_array[semantic_ids]
+            counts = np.bincount(mapped, minlength=num_classes)
+            class_counts += counts
+
+    # Calculate inverse frequencies
+    class_counts[0] = 0  # Ignore class 0 (unlabeled)
+    total_valid = max(class_counts.sum(), 1)
+    freq = class_counts / total_valid
+    
+    weights = np.ones(num_classes, dtype=np.float32)
+    valid_mask = freq > 0
+    weights[valid_mask] = 1.0 / (freq[valid_mask] + 1e-6)
+    
+    # Clamp weights between ~0.2x and ~2.0x to avoid extreme loss oscillation
+    if valid_mask.any():
+        q10 = np.percentile(weights[valid_mask], 10)
+        q90 = np.percentile(weights[valid_mask], 90)
+        weights = np.clip(weights, q10, q90)
+        # Normalize so the mean weight of valid classes is exactly 1.0
+        weights[valid_mask] = weights[valid_mask] / weights[valid_mask].mean()
+        
+    weights[0] = 0.0 # Force unlabeled class to 0 completely
+    
+    logger.info(f"Computed Class Weights: \n{weights}")
+    return torch.from_numpy(weights)
 
 
 def main():
@@ -90,8 +138,17 @@ def main():
         lr=args.learning_rate,
     )
 
-    # 3. Initialize AMP Scaler for Mixed Precision Training
+    # 3. Learning Rate Scheduler (Reduces LR when validation loss plateaus)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=0.5, patience=3, verbose=True
+    )
+
+    # 4. Initialize AMP Scaler for Mixed Precision Training
     scaler = torch.amp.GradScaler(device.type) if device.type == 'cuda' else None
+
+    # 5. Per-Class Focal Loss Weights (Alpha)
+    # Computed dynamically from raw labels to perfectly combat class imbalance
+    class_weights = compute_class_weights(args.dataset_root, args.train_seqs).to(device)
 
     model.train()
 
@@ -103,7 +160,10 @@ def main():
         model.train()
         train_loss = 0.0
 
-        for batch in train_loader:
+        # Wrap the dataloader in tqdm for a progress bar
+        train_pbar = tqdm(train_loader, desc=f"Epoch {epoch}/{args.epochs} [Train]")
+        
+        for batch in train_pbar:
             # We cast features up to float32 (AMP will handle casting down if safe)
             # and target to long (int64) because F.cross_entropy requires it.
             features = batch["features"].to(device, dtype=torch.float32)
@@ -112,11 +172,11 @@ def main():
 
             optimizer.zero_grad()
 
-            # 4. Mixed Precision Training (FP16)
+            # Mixed Precision Training (FP16)
             if device.type == "cuda":
                 with torch.amp.autocast('cuda'):
                     logits = model(features)
-                    loss = masked_focal_loss(logits, target, mask)
+                    loss = masked_focal_loss(logits, target, mask, alpha=class_weights)
                 
                 scaler.scale(loss).backward()
                 scaler.step(optimizer)
@@ -124,17 +184,21 @@ def main():
             else:
                 # Standard FP32 for CPU/MPS
                 logits = model(features)
-                loss = masked_focal_loss(logits, target, mask)
+                loss = masked_focal_loss(logits, target, mask, alpha=class_weights)
                 loss.backward()
                 optimizer.step()
 
             train_loss += loss.item()
+            train_pbar.set_postfix({"loss": f"{loss.item():.4f}"})
 
         # --- VALIDATION ---
         model.eval()
         val_loss = 0.0
+        
+        val_pbar = tqdm(val_loader, desc=f"Epoch {epoch}/{args.epochs} [Val]")
+        
         with torch.no_grad():
-            for batch in val_loader:
+            for batch in val_pbar:
                 features = batch["features"].to(device, dtype=torch.float32)
                 target = batch["target"].to(device, dtype=torch.long)
                 mask = batch["mask"].to(device)
@@ -142,19 +206,25 @@ def main():
                 if device.type == "cuda":
                     with torch.amp.autocast('cuda'):
                         logits = model(features)
-                        loss = masked_focal_loss(logits, target, mask)
+                        loss = masked_focal_loss(logits, target, mask, alpha=class_weights)
                 else:
                     logits = model(features)
-                    loss = masked_focal_loss(logits, target, mask)
+                    loss = masked_focal_loss(logits, target, mask, alpha=class_weights)
                 
                 val_loss += loss.item()
+                val_pbar.set_postfix({"loss": f"{loss.item():.4f}"})
 
         # Average the losses over the number of batches
         train_loss /= max(1, len(train_loader))
         val_loss /= max(1, len(val_loader))
 
+        # Update the Learning Rate Scheduler
+        scheduler.step(val_loss)
+        current_lr = optimizer.param_groups[0]['lr']
+
         logger.info(
             f"Epoch {epoch:3d} | "
+            f"LR: {current_lr:.2e} | "
             f"Train Loss: {train_loss:.6f} | "
             f"Val Loss: {val_loss:.6f}"
         )
