@@ -38,6 +38,10 @@ function GridCells({ gridData }: { gridData: any }) {
     const { positions, labels, sizes } = gridData
 
     const count = positions.length / 3
+    
+    // Dynamically limit the draw call to the actual number of cells
+    meshRef.current.count = count
+
     for (let i = 0; i < count; i++) {
       const x = positions[i * 3]
       const y = positions[i * 3 + 1]
@@ -63,8 +67,10 @@ function GridCells({ gridData }: { gridData: any }) {
 
   if (!gridData) return null
 
+  // Pre-allocate a massive buffer (e.g., 50,000 cells) so we never write out of bounds.
+  // The actual draw count is managed by meshRef.current.count = cellCount above.
   return (
-    <instancedMesh ref={meshRef} args={[undefined, undefined, gridData.positions.length / 3]}>
+    <instancedMesh ref={meshRef} args={[undefined, undefined, 50000]}>
       <boxGeometry args={[1, 1, 1]} />
       <meshStandardMaterial />
     </instancedMesh>
@@ -99,15 +105,13 @@ export default function App() {
 
   // Playback Loop for Simulated Real-Time Data
   useEffect(() => {
-    if (isPlaying) {
-      timerRef.current = setInterval(() => {
+    if (isPlaying && !loading) {
+      timerRef.current = setTimeout(() => {
         setFrameId(prev => prev + 1)
-      }, 300) // ~3 FPS simulated speed
-    } else {
-      clearInterval(timerRef.current)
+      }, 300) // Wait 300ms after the previous frame finishes loading
     }
-    return () => clearInterval(timerRef.current)
-  }, [isPlaying])
+    return () => clearTimeout(timerRef.current)
+  }, [isPlaying, loading, frameId])
 
   const warning = data?.metrics?.collision_warning;
 

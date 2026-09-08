@@ -144,27 +144,93 @@ class AdaptiveGrid:
         points: np.ndarray,
         semantic_classes: np.ndarray | None = None,
     ) -> None:
-        """Insert an Nx3 array of LiDAR points."""
-
+        """Vectorized insertion of an Nx3 array of LiDAR points."""
         points = np.asarray(points, dtype=np.float32)
 
         if points.ndim != 2 or points.shape[1] != 3:
-            raise ValueError(
-                "points must have shape (N, 3)."
-            )
+            raise ValueError("points must have shape (N, 3).")
 
+        if len(points) == 0:
+            return
+
+        x = points[:, 0]
+        y = points[:, 1]
+        z = points[:, 2]
+        
+        distances = np.hypot(x, y)
+        
+        # 1. Determine bands
+        band_indices = np.full(len(points), -1, dtype=np.int32)
+        resolutions = np.zeros(len(points), dtype=np.float32)
+        
+        for idx, (max_dist, res) in enumerate(self.resolution_bands):
+            prev = self.resolution_bands[idx-1][0] if idx > 0 else -1.0
+            mask = (distances > prev) & (distances <= max_dist)
+            band_indices[mask] = idx
+            resolutions[mask] = res
+            
+        # Filter out points beyond max distance
+        valid = band_indices >= 0
+        x = x[valid]
+        y = y[valid]
+        z = z[valid]
+        band_indices = band_indices[valid]
+        resolutions = resolutions[valid]
+        
         if semantic_classes is not None:
-            semantic_classes = np.asarray(semantic_classes)
-            if semantic_classes.shape != (len(points),):
-                raise ValueError("semantic_classes must have shape (N,).")
+            semantic_classes = semantic_classes[valid]
+            
+        if len(x) == 0:
+            return
 
-        for index, (x, y, z) in enumerate(points):
-            self.insert_point(
-                x=x,
-                y=y,
-                z=z,
-                semantic_class=(None if semantic_classes is None else semantic_classes[index]),
-            )
+        # 2. Compute rows and cols
+        rows = np.floor(y / resolutions).astype(np.int64)
+        cols = np.floor(x / resolutions).astype(np.int64)
+        
+        # 3. Pack keys for np.unique (Shift by 20000 to handle negative indices safely)
+        r_shifted = rows + 20000
+        c_shifted = cols + 20000
+        b_shifted = band_indices.astype(np.int64)
+        
+        packed_keys = (r_shifted << 32) | (c_shifted << 16) | b_shifted
+        
+        unique_keys, inverse = np.unique(packed_keys, return_inverse=True)
+        
+        num_unique = len(unique_keys)
+        
+        sum_height = np.zeros(num_unique, dtype=np.float64)
+        sum_height_sq = np.zeros(num_unique, dtype=np.float64)
+        point_counts = np.zeros(num_unique, dtype=np.int32)
+        
+        np.add.at(sum_height, inverse, z)
+        np.add.at(sum_height_sq, inverse, z**2)
+        np.add.at(point_counts, inverse, 1)
+        
+        if semantic_classes is not None:
+            max_class = 256 # Supports UNSEEN = 255
+            flat_indices = inverse * max_class + semantic_classes
+            class_counts = np.bincount(flat_indices, minlength=num_unique * max_class)
+            class_counts = class_counts.reshape(num_unique, max_class)
+            majority_classes = np.argmax(class_counts, axis=1)
+        
+        # 4. Populate the dictionary directly
+        for i, u_key in enumerate(unique_keys):
+            b = int(u_key & 0xFFFF)
+            c = int((u_key >> 16) & 0xFFFF) - 20000
+            r = int((u_key >> 32) & 0xFFFFFFFF) - 20000
+            
+            cell = self.get_or_create_cell(r, c, b)
+            cell._height_sum += float(sum_height[i])
+            cell._height_squared_sum += float(sum_height_sq[i])
+            cell.point_count += int(point_counts[i])
+            cell.occupied = True
+            
+            if semantic_classes is not None:
+                majority = int(majority_classes[i])
+                cell.semantic_class = majority
+                cell._labeled_point_count += int(class_counts[i].sum())
+                if cell._labeled_point_count > 0:
+                    cell.semantic_confidence = float(class_counts[i, majority] / cell._labeled_point_count)
 
     @property
     def num_cells(self) -> int:

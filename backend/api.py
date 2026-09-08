@@ -40,7 +40,31 @@ def load_resources():
     print(f"Starting API. Compute device: {device}")
     
     # 1. Load Dataset
-    seq_dir = PROJECT_ROOT.parent / "SemanticKITTI" / "sequences" / "00"
+    import os
+    
+    # Try to get path from environment, otherwise fallback to standard Drive paths or local
+    env_path = os.environ.get("SEMANTIC_KITTI_DIR")
+    
+    if env_path:
+        seq_dir = Path(env_path)
+    else:
+        # Standard Google Drive paths (Colab, Mac CloudStorage, Mac Volumes, Windows)
+        drive_colab = Path("/content/drive/MyDrive/semantickitti/dataset/sequences/00")
+        drive_mac_cloud = Path("/Users/parvgurung/Library/CloudStorage/GoogleDrive-parvgurung05@gmail.com/My Drive/semantickitti/dataset/sequences/00")
+        drive_mac = Path("/Volumes/GoogleDrive/My Drive/semantickitti/dataset/sequences/00")
+        drive_win = Path("G:/My Drive/semantickitti/dataset/sequences/00")
+        local_path = PROJECT_ROOT.parent / "SemanticKITTI" / "sequences" / "00"
+        
+        if drive_colab.exists():
+            seq_dir = drive_colab
+        elif drive_mac_cloud.exists():
+            seq_dir = drive_mac_cloud
+        elif drive_mac.exists():
+            seq_dir = drive_mac
+        elif drive_win.exists():
+            seq_dir = drive_win
+        else:
+            seq_dir = local_path
     if seq_dir.exists():
         try:
             dataset = SemanticKITTIDataset(seq_dir)
