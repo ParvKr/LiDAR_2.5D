@@ -27,18 +27,20 @@ class BEVDataset(Dataset):
         
         self.use_cache = use_cache
 
-        # VERY IMPORTANT: We save the cache to a fast local temporary directory.
-        # We hash the FULL absolute path of the sequence to guarantee no collisions
-        # if the user mounts different datasets that share sequence names (like "00").
+        # VERY IMPORTANT: Default to checking inside the sequence directory itself for .bev_cache
+        # This allows pre-generated caches on Google Drive to be found instantly!
         import os
         import tempfile
         import hashlib
         
-        abs_path = str(self.sequence_dir.absolute()).encode('utf-8')
-        path_hash = hashlib.md5(abs_path).hexdigest()[:8]
-        
-        base_cache_dir = Path(os.environ.get("BEV_CACHE_DIR", tempfile.gettempdir())) / "bev_cache"
-        self.cache_dir = base_cache_dir / f"{self.sequence_dir.name}_{path_hash}"
+        # If the user explicitly provided a cache dir, use it. Otherwise, default to sequence_dir.
+        env_cache = os.environ.get("BEV_CACHE_DIR")
+        if env_cache:
+            abs_path = str(self.sequence_dir.absolute()).encode('utf-8')
+            path_hash = hashlib.md5(abs_path).hexdigest()[:8]
+            self.cache_dir = Path(env_cache) / "bev_cache" / f"{self.sequence_dir.name}_{path_hash}"
+        else:
+            self.cache_dir = self.sequence_dir / ".bev_cache"
         
         if self.use_cache:
             self.cache_dir.mkdir(parents=True, exist_ok=True)
