@@ -155,6 +155,12 @@ def main():
     best_miou = -1.0
     epochs_without_improvement = 0
 
+    metrics_path = args.checkpoint_dir / "metrics.csv"
+    args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    if not metrics_path.exists():
+        with open(metrics_path, "w") as f:
+            f.write("epoch,lr,train_loss,val_loss,val_miou,val_acc\n")
+
     for epoch in range(1, args.epochs + 1):
         # --- TRAINING ---
         model.train()
@@ -197,6 +203,10 @@ def main():
         
         intersection = torch.zeros(20, device=device)
         union = torch.zeros(20, device=device)
+        confusion = torch.zeros((20, 20), dtype=torch.int64, device=device)
+        
+        correct = 0
+        total = 0
         
         val_pbar = tqdm(val_loader, desc=f"Epoch {epoch}/{args.epochs} [Val]")
         
@@ -220,6 +230,18 @@ def main():
                 preds = logits.argmax(dim=1)
                 valid = mask & (target != 0)
                 
+                valid_target = target[valid]
+                valid_preds = preds[valid]
+                
+                correct += (valid_target == valid_preds).sum().item()
+                total += valid.sum().item()
+                
+                # Fast 1D bincount for 20x20 confusion matrix
+                if len(valid_target) > 0:
+                    indices = valid_target * 20 + valid_preds
+                    counts = torch.bincount(indices, minlength=400)
+                    confusion += counts.view(20, 20)
+                
                 for cls_id in range(1, 20):
                     cls_preds = (preds == cls_id) & valid
                     cls_target = (target == cls_id) & valid
@@ -233,10 +255,11 @@ def main():
         train_loss /= max(1, len(train_loader))
         val_loss /= max(1, len(val_loader))
         
-        # Calculate Validation mIoU
+        # Calculate Validation Metrics
         ious = intersection[1:] / (union[1:] + 1e-6)
         valid_classes = union[1:] > 0
         val_miou = ious[valid_classes].mean().item() if valid_classes.any() else float('-inf')
+        val_acc = correct / max(total, 1)
 
         # Update the Learning Rate Scheduler
         scheduler.step(val_loss)
@@ -247,8 +270,21 @@ def main():
             f"LR: {current_lr:.2e} | "
             f"Train Loss: {train_loss:.6f} | "
             f"Val Loss: {val_loss:.6f} | "
+            f"Val Acc: {val_acc:.4f} | "
             f"Val mIoU: {val_miou:.4f}"
         )
+        
+        # Log to CSV
+        with open(metrics_path, "a") as f:
+            f.write(f"{epoch},{current_lr},{train_loss},{val_loss},{val_miou},{val_acc}\n")
+            
+        # Print Per-Class IoU
+        from perception.taxonomy import SemanticClass
+        logger.info("\n--- Per-Class IoU ---")
+        for cls_id in range(1, 20):
+            if union[cls_id] > 0:
+                cls_name = SemanticClass(cls_id).name
+                logger.info(f"{cls_name:>20}: {ious[cls_id-1].item():.4f}")
 
         # Early Stopping based on Validation mIoU
         if val_miou > best_miou:
@@ -256,9 +292,12 @@ def main():
             epochs_without_improvement = 0
             
             # Save the best model safely to the checkpoint directory!
-            args.checkpoint_dir.mkdir(parents=True, exist_ok=True)
             best_model_path = args.checkpoint_dir / "best_unet.pth"
             torch.save(model.state_dict(), best_model_path)
+            
+            # Save the confusion matrix alongside the best model
+            torch.save(confusion.cpu(), args.checkpoint_dir / "best_confusion.pt")
+            
             logger.info(f"New best model saved with mIoU {best_miou:.4f} to {best_model_path}")
         else:
             epochs_without_improvement += 1

@@ -95,7 +95,8 @@ def main() -> None:
     logger.info("Building adaptive foveated 2.5D grid...")
     grid = AdaptiveGrid(list(DEFAULT_BANDS))
     xyz = points[:, :3]
-    in_range = np.hypot(xyz[:, 0], xyz[:, 1]) <= grid.max_distance
+    # after
+    in_range = valid_points & (np.hypot(xyz[:, 0], xyz[:, 1]) <= grid.max_distance)
     
     # Insert points with their *PREDICTED* classes
     grid.insert_points(xyz[in_range], semantic_classes=point_preds[in_range])

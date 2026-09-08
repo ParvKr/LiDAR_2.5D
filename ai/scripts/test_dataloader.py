@@ -47,7 +47,7 @@ def main():
     print("\nExpected:")
 
     print(
-        "Features: [batch, 5, 500, 500]"
+        "Features: [batch, 6, 500, 500]"
     )
 
     print(
