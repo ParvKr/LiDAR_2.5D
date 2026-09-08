@@ -211,7 +211,6 @@ class AdaptiveGrid:
             flat_indices = inverse * max_class + semantic_classes
             class_counts = np.bincount(flat_indices, minlength=num_unique * max_class)
             class_counts = class_counts.reshape(num_unique, max_class)
-            majority_classes = np.argmax(class_counts, axis=1)
         
         # 4. Populate the dictionary directly
         for i, u_key in enumerate(unique_keys):
@@ -226,11 +225,20 @@ class AdaptiveGrid:
             cell.occupied = True
             
             if semantic_classes is not None:
-                majority = int(majority_classes[i])
-                cell.semantic_class = majority
-                cell._labeled_point_count += int(class_counts[i].sum())
+                # Merge the local counts into the cell's global _semantic_counts
+                local_counts = class_counts[i]
+                nonzero_classes = np.nonzero(local_counts)[0]
+                
+                for cls_idx in nonzero_classes:
+                    count = int(local_counts[cls_idx])
+                    cell._semantic_counts[int(cls_idx)] = cell._semantic_counts.get(int(cls_idx), 0) + count
+                    
+                cell._labeled_point_count += int(local_counts.sum())
+                
                 if cell._labeled_point_count > 0:
-                    cell.semantic_confidence = float(class_counts[i, majority] / cell._labeled_point_count)
+                    # Recompute global majority from the merged dictionary
+                    cell.semantic_class = max(cell._semantic_counts, key=cell._semantic_counts.get)
+                    cell.semantic_confidence = float(cell._semantic_counts[cell.semantic_class] / cell._labeled_point_count)
 
     @property
     def num_cells(self) -> int:
